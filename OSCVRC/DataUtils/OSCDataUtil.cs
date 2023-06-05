@@ -1,5 +1,6 @@
 ﻿using System;
 using System.Collections.Generic;
+using System.Diagnostics.CodeAnalysis;
 using System.Linq;
 using System.Text;
 using System.Threading.Tasks;
@@ -10,7 +11,7 @@ namespace OSCVRC.DataUtils {
 	/// <summary>
 	/// This class manages assembling and disassembling data sent and received in the OSC format.
 	/// </summary>
-	public static class OSCDataManager {
+	public static class OSCDataUtil {
 
 		/// <summary>
 		/// Buffers the provided text into a UTF-8 OSC string with the proper length.
@@ -98,6 +99,29 @@ namespace OSCVRC.DataUtils {
 		/// <param name="str"></param>
 		/// <returns></returns>
 		public static byte[] StringToRawByteArray(string str) => str.ToCharArray().Select(c => (byte)c).ToArray();
+
+		/// <summary>
+		/// A method that behaves like <see cref="string.StartsWith(string)"/>, but it also returns the substring occurring after the provided search query if it is present.<para/>
+		/// <paramref name="textAfter"/> will be set to <paramref name="text"/> if <paramref name="searchFor"/> is not found!
+		/// </summary>
+		/// <param name="text"></param>
+		/// <param name="searchFor"></param>
+		/// <param name="textAfter"></param>
+		/// <param name="comparison"></param>
+		/// <returns></returns>
+		public static bool StartsWithGetAfter(this string text, in string searchFor, out string textAfter, StringComparison comparison = StringComparison.CurrentCulture) {
+			if (text.StartsWith(searchFor, comparison)) {
+				if (text.Length == searchFor.Length) {
+					textAfter = string.Empty;
+					return true;
+				} else {
+					textAfter = text[searchFor.Length..];
+					return true;
+				}
+			}
+			textAfter = text;
+			return false;
+		}
 
 	}
 }

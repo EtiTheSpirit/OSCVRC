@@ -1,7 +1,6 @@
 ﻿using OSCVRC.DataUtils;
 using System;
 using System.Collections.Generic;
-using System.Collections.Immutable;
 using System.ComponentModel.Design;
 using System.Linq;
 using System.Net;
@@ -39,10 +38,10 @@ namespace OSCVRC {
 		//language=regex
 		private const string REGEX_MATCH_INCOMING_OSC_BOOL = @"([^,]+),([TF])\x00{2}";
 
-		private static readonly ImmutableArray<byte> TAG_FLOAT = (new byte[] { (byte)',', (byte)'f', 0, 0 }).ToImmutableArray();
-		private static readonly ImmutableArray<byte> TAG_INT = (new byte[] { (byte)',', (byte)'i', 0, 0 }).ToImmutableArray();
-		private static readonly ImmutableArray<byte> TAG_TRUE = (new byte[] { (byte)',', (byte)'T', 0, 0 }).ToImmutableArray();
-		private static readonly ImmutableArray<byte> TAG_FALSE = (new byte[] { (byte)',', (byte)'F', 0, 0 }).ToImmutableArray();
+		private static readonly byte[] TAG_FLOAT = (new byte[] { (byte)',', (byte)'f', 0, 0 });
+		private static readonly byte[] TAG_INT = (new byte[] { (byte)',', (byte)'i', 0, 0 });
+		private static readonly byte[] TAG_TRUE = (new byte[] { (byte)',', (byte)'T', 0, 0 });
+		private static readonly byte[] TAG_FALSE = (new byte[] { (byte)',', (byte)'F', 0, 0 });
 
 
 		private bool _disposed;
@@ -73,7 +72,7 @@ namespace OSCVRC {
 		/// </summary>
 		/// <param name="sendTo">The IP to send to. Uses VRChat's default if this is null.</param>
 		/// <param name="receiveFrom">The IP to receive from. Uses VRChat's default if this is null.</param>
-		public VRCAvatarParameterOSCInterface(IPEndPoint? sendTo = null, IPEndPoint? receiveFrom = null) {
+		public VRCAvatarParameterOSCInterface(IPEndPoint sendTo = null, IPEndPoint receiveFrom = null) {
 			_sendToIP = sendTo ?? new IPEndPoint(IPAddress.Loopback, 9000);
 			_receiveFromIP = receiveFrom ?? new IPEndPoint(IPAddress.Loopback, 9001);
 			_sender = new Socket(AddressFamily.InterNetwork, SocketType.Dgram, ProtocolType.Udp);
@@ -228,18 +227,18 @@ namespace OSCVRC {
 			string newReceivedInfo = OSCDataUtil.RawByteArrayToString(buf);
 			newReceivedInfo = OSCDataUtil.RawByteArrayToString(_overflowBuffer.ToArray()) + newReceivedInfo; // Put anything missing onto the end here.
 
-			Match[] @params = Regex.Matches(newReceivedInfo, REGEX_MATCH_INCOMING_OSC).ToArray();
+			MatchCollection @params = Regex.Matches(newReceivedInfo, REGEX_MATCH_INCOMING_OSC);
 			foreach (Match match in @params) {
 				if (!HandleMatch(match, ref newReceivedInfo)) break;
 			}
-			if (@params.Length == 0) {
-				@params = Regex.Matches(newReceivedInfo, REGEX_MATCH_INCOMING_OSC_BOOL).ToArray();
+			if (@params.Count == 0) {
+				@params = Regex.Matches(newReceivedInfo, REGEX_MATCH_INCOMING_OSC_BOOL);
 				foreach (Match match in @params) {
 					if (!HandleMatch(match, ref newReceivedInfo)) break;
 				}
 			}
-			if (@params.Length == 0) {
-				@params = Regex.Matches(newReceivedInfo, REGEX_MATCH_INCOMING_OSC_STRING).ToArray();
+			if (@params.Count == 0) {
+				@params = Regex.Matches(newReceivedInfo, REGEX_MATCH_INCOMING_OSC_STRING);
 				foreach (Match match in @params) {
 					if (!HandleMatch(match, ref newReceivedInfo)) break;
 				}
@@ -319,7 +318,7 @@ namespace OSCVRC {
 			if (matchLength == newReceivedInfo.Length) {
 				newReceivedInfo = string.Empty;
 			} else {
-				newReceivedInfo = newReceivedInfo[matchLength..]; // Skip ahead
+				newReceivedInfo = newReceivedInfo.Substring(matchLength); // Skip ahead
 			}
 		}
 
@@ -375,7 +374,7 @@ namespace OSCVRC {
 		/// </summary>
 		/// <returns></returns>
 		public IReadOnlyDictionary<string, Variant<int, float, bool>> GetAllParameters() {
-			return _dataCache.AsReadOnly();
+			return _dataCache;
 		}
 
 		#endregion

@@ -10,6 +10,7 @@ namespace TestApp {
 	internal class Program {
 		private static void Main(string[] args) {
 			using VRCAvatarParameterOSCInterface paramDriver = new VRCAvatarParameterOSCInterface();
+			paramDriver.LogActions = true;
 			while (true) Console.ReadLine();
 		}
 	}

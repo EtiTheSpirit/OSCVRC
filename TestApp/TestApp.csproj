@@ -8,7 +8,7 @@
   </PropertyGroup>
 
   <ItemGroup>
-    <ProjectReference Include="..\OSCVRC\OSCVRC.csproj" />
+    <ProjectReference Include="..\OSCVRC_NETFRAMEWORK\OSCVRC_NETFRAMEWORK.csproj" />
   </ItemGroup>
 
 </Project>

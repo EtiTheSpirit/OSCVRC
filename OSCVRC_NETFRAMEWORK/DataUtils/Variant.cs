@@ -31,7 +31,8 @@ namespace OSCVRC.DataUtils {
 		public readonly T3 valueType3;
 
 		/// <summary>
-		/// The index of the appropriate value. This will be either 0, 1, or 2.
+		/// The index of the appropriate value. This will be either 1, 2, or 3.
+		/// <strong>0 indicates an error.</strong>
 		/// </summary>
 		public readonly int index;
 

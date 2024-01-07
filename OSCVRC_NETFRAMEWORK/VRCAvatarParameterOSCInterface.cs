@@ -24,7 +24,7 @@ namespace OSCVRC {
 		/// This matches incoming OSC data of integer or float type.
 		/// </summary>
 		//language=regex
-		private const string REGEX_MATCH_INCOMING_OSC = @"([^,]+),([fi])\x00{2}([\x00-\xFF]{4})";
+		private const string REGEX_MATCH_INCOMING_OSC_INT_FLOAT = @"([^,]+),([fi])\x00{2}([\x00-\xFF]{4})";
 
 		/// <summary>
 		/// This matches incoming OSC data of string type.
@@ -89,6 +89,13 @@ namespace OSCVRC {
 			} catch (TaskCanceledException) { }
 		}
 
+		/// <summary>
+		/// Prepares to send and receive data from the provided ports on <c>localhost</c>.
+		/// </summary>
+		/// <param name="sendTo">The IP to send to. Uses VRChat's default if this is null.</param>
+		/// <param name="receiveFrom">The IP to receive from. Uses VRChat's default if this is null.</param>
+		public VRCAvatarParameterOSCInterface(ushort sendToPort, ushort receiveFromPort) : this(new IPEndPoint(IPAddress.Loopback, sendToPort), new IPEndPoint(IPAddress.Loopback, receiveFromPort)) { }
+
 		/// <inheritdoc/>
 		~VRCAvatarParameterOSCInterface() { Dispose(); }
 
@@ -119,8 +126,40 @@ namespace OSCVRC {
 			return paramNameBytes;
 		}
 
+
+		/// <summary>
+		/// Constructs a new OSC packet. <see cref="int"/> and <see cref="float"/> types require the value to be placed in by the caller. <see cref="bool"/> types require the tag to be placed in by the caller.
+		/// </summary>
+		/// <typeparam name="T"></typeparam>
+		/// <param name="parameterName"></param>
+		/// <returns>The number of bytes advanced in the array.</returns>
+		/// <exception cref="NotSupportedException"></exception>
+		private static int PutOSCPacket<T>(byte[] destination, int start, string parameterName) where T : struct {
+			int orgLen = OSCDataUtil.PutOSCString(destination, start, $"{AVATAR_PARAMETER_PATH_PREFIX}/{parameterName}");
+
+			if (typeof(T) == typeof(int)) {
+				// Array.Resize(ref paramNameBytes, orgLen + 4 + 4);
+				Array.Copy(TAG_INT.ToArray(), 0, destination, orgLen, 4);
+				orgLen += 8;
+			} else if (typeof(T) == typeof(float)) {
+				// Array.Resize(ref paramNameBytes, orgLen + 4 + 4);
+				Array.Copy(TAG_FLOAT.ToArray(), 0, destination, orgLen, 4);
+				orgLen += 8;
+			} else if (typeof(T) == typeof(bool)) {
+				// Array.Resize(ref paramNameBytes, orgLen + 4 + 0);
+				orgLen += 4;
+			} else {
+				throw new NotSupportedException($"The provided type parameter ({typeof(T).FullName}) is not a VRChat-supported OSC type.");
+			}
+			return orgLen - start;
+		}
+
 		private static void AppendToEnd(byte[] packet, byte[] valueBytes) {
 			Array.Copy(valueBytes, 0, packet, packet.Length - valueBytes.Length, valueBytes.Length);
+		}
+
+		private static void InsertInto(byte[] packet, byte[] value, int at) {
+			Array.Copy(value, 0, packet, at, value.Length);
 		}
 
 		#endregion
@@ -191,11 +230,55 @@ namespace OSCVRC {
 			if (_disposed) throw new ObjectDisposedException(GetType().Name);
 			_dataCache[parameterName] = value;
 			byte[] packet = NewOSCPacket<bool>(parameterName); // Bool has no args and thus it has no tag assigned here because the tag is the value.
-			byte[] valueBytes = value ? TAG_TRUE.ToArray() : TAG_FALSE.ToArray();
+			byte[] valueBytes = value ? TAG_TRUE : TAG_FALSE;
 			AppendToEnd(packet, valueBytes);
 			OSCDataUtil.Pad(ref packet);
 			_sender.Send(packet);
 			if (LogActions) Logger.LogSend(parameterName, value);
+		}
+
+		/// <summary>
+		/// Sends many parameters at once in a single transmission. This performs much better than
+		/// calling <see cref="SetAvatarParameter"/> many times repeatedly.
+		/// </summary>
+		/// <param name="parameters"></param>
+		public void SetManyParameters((string, Variant<int, float, bool>)[] parameters) {
+			if (_disposed) throw new ObjectDisposedException(GetType().Name);
+
+			byte[] bigBuf = new byte[1024];
+			int offset = 0;
+			for (int index = 0; index < parameters.Length; index++) {
+				(string parameterName, Variant<int, float, bool> value) = parameters[index];
+				_dataCache[parameterName] = value;
+
+				byte[] valueBytes;
+				switch (value.index) {
+					case 1:
+						offset += PutOSCPacket<int>(bigBuf, offset, parameterName);
+						valueBytes = OSCDataUtil.GetBigEndianBytesOf((int)value);
+
+						break;
+					case 2:
+						offset += PutOSCPacket<float>(bigBuf, offset, parameterName);
+						valueBytes = OSCDataUtil.GetBigEndianBytesOf((float)value);
+
+						break;
+					case 3:
+						offset += PutOSCPacket<bool>(bigBuf, offset, parameterName);
+						valueBytes = (bool)value ? TAG_TRUE : TAG_FALSE;
+
+						break;
+					default:
+						throw new InvalidOperationException();
+				}
+
+
+				InsertInto(bigBuf, valueBytes, offset);
+				offset += valueBytes.Length;
+			}
+
+			OSCDataUtil.Pad(ref bigBuf);
+			_sender.Send(bigBuf);
 		}
 
 		#endregion
@@ -205,9 +288,6 @@ namespace OSCVRC {
 		private Task ReceiveAllParameters() {
 			while (true) {
 				byte[] buf = new byte[128];
-				//EndPoint ep = new IPEndPoint(_receiveFromIP.Address, _receiveFromIP.Port);;
-				//int amount = _receiver.ReceiveFrom(buf, ref ep);
-				//int amount = await _receiver.ReceiveAsync(buf);
 				int amount = _receiver.Receive(buf);
 
 				Array.Resize(ref buf, amount);
@@ -227,7 +307,7 @@ namespace OSCVRC {
 			string newReceivedInfo = OSCDataUtil.RawByteArrayToString(buf);
 			newReceivedInfo = OSCDataUtil.RawByteArrayToString(_overflowBuffer.ToArray()) + newReceivedInfo; // Put anything missing onto the end here.
 
-			MatchCollection @params = Regex.Matches(newReceivedInfo, REGEX_MATCH_INCOMING_OSC);
+			MatchCollection @params = Regex.Matches(newReceivedInfo, REGEX_MATCH_INCOMING_OSC_INT_FLOAT);
 			foreach (Match match in @params) {
 				if (!HandleMatch(match, ref newReceivedInfo)) break;
 			}
@@ -258,8 +338,9 @@ namespace OSCVRC {
 
 			if (parameterName.StartsWithGetAfter("/avatar/parameters/", out parameterName)) {
 				return HandleParameterReceived(match.Length, ref newReceivedInfo, parameterName, type, rawValue);
-			} else if (parameterName.StartsWithGetAfter("/avatar/change/", out string avatarId) && type == "s") {
-				return HandleAvatarChanged(match.Length, ref newReceivedInfo, avatarId);
+			} else if (parameterName.StartsWith("/avatar/change") && type == "s") {
+				// No trailing slash.
+				return HandleAvatarChanged(match.Length, ref newReceivedInfo, rawValueStr);
 			} else {
 				TruncateReceivedInfo(match.Length, ref newReceivedInfo);
 			}
@@ -269,10 +350,11 @@ namespace OSCVRC {
 
 		private bool HandleAvatarChanged(int matchLength, ref string newReceivedInfo, string avatarId) {
 			if (avatarId.StartsWithGetAfter("avtr_", out string id)) {
-				if (Guid.TryParse(id, out Guid guid)) {
-					AvatarChanged?.Invoke(guid);
-					TruncateReceivedInfo(matchLength, ref newReceivedInfo);
-				}
+				avatarId = id; // For VRC, strip off the avtr_ prefix on avatar IDs.
+			}
+			if (Guid.TryParse(avatarId, out Guid guid)) {
+				AvatarChanged?.Invoke(guid);
+				TruncateReceivedInfo(matchLength, ref newReceivedInfo);
 			}
 			return false;
 		}
@@ -368,6 +450,7 @@ namespace OSCVRC {
 			value = default;
 			return false;
 		}
+
 
 		/// <summary>
 		/// Returns all known parameters.

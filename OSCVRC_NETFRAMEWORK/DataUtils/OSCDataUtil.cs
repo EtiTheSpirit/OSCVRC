@@ -31,6 +31,22 @@ namespace OSCVRC.DataUtils {
 		}
 
 		/// <summary>
+		/// Buffers the provided text into a UTF-8 OSC string with the proper length.
+		/// <para/>
+		/// <strong>WARNING: THIS EXPECTS THE DESTINATION ARRAY TO HAVE SUFFICIENT SIZE.</strong>
+		/// </summary>
+		/// <param name="text"></param>
+		/// <returns></returns>
+		public static int PutOSCString(byte[] destination, int start, string text) {
+			int offset = start;
+			offset += Encoding.ASCII.GetBytes(text, 0, text.Length, destination, start);
+			destination[offset++] = 0;
+			int extraNeededSpace = 4 - (offset % 4);
+			offset += extraNeededSpace;
+			return offset - start;
+		}
+
+		/// <summary>
 		/// Ensures the length of <paramref name="data"/> is a multiple of 4.
 		/// </summary>
 		/// <param name="data"></param>
@@ -45,28 +61,28 @@ namespace OSCVRC.DataUtils {
 		/// </summary>
 		/// <param name="value"></param>
 		/// <returns></returns>
-		public static byte[] GetBigEndianBytesOf(int value) => InvertEndianness(BitConverter.GetBytes(value));
+		public static byte[] GetBigEndianBytesOf(int value) => EnsureBigEndian(BitConverter.GetBytes(value));
 
 		/// <summary>
 		/// Returns the bytes of the provided 32 bit floating point value in big endian form for OSC.
 		/// </summary>
 		/// <param name="value"></param>
 		/// <returns></returns>
-		public static byte[] GetBigEndianBytesOf(float value) => InvertEndianness(BitConverter.GetBytes(value));
+		public static byte[] GetBigEndianBytesOf(float value) => EnsureBigEndian(BitConverter.GetBytes(value));
 
 		/// <summary>
 		/// Returns a buffer of bytes into a 32 bit little endian integer.
 		/// </summary>
 		/// <param name="data"></param>
 		/// <returns></returns>
-		public static int GetIntFromBigEndian(byte[] data) => BitConverter.ToInt32(InvertEndianness(data), 0);
+		public static int GetIntFromBigEndian(byte[] data) => BitConverter.ToInt32(EnsureBigEndian(data), 0);
 
 		/// <summary>
 		/// Returns a buffer of bytes into a 32 bit single precision floating point.
 		/// </summary>
 		/// <param name="data"></param>
 		/// <returns></returns>
-		public static float GetFloatFromBigEndian(byte[] data) => BitConverter.ToSingle(InvertEndianness(data), 0);
+		public static float GetFloatFromBigEndian(byte[] data) => BitConverter.ToSingle(EnsureBigEndian(data), 0);
 
 		/// <summary>
 		/// This method inverts the endian-ness of the value if the system is little (OSC uses big). This is suitable for both outgoing data and incoming data.
@@ -76,13 +92,11 @@ namespace OSCVRC.DataUtils {
 		/// </remarks>
 		/// <param name="nativeOrderBytes"></param>
 		/// <returns></returns>
-		private static byte[] InvertEndianness(byte[] nativeOrderBytes) {
-			byte[] newData = new byte[4];
-			nativeOrderBytes.CopyTo(newData, 0);
+		private static byte[] EnsureBigEndian(byte[] nativeOrderBytes) {
 			if (BitConverter.IsLittleEndian) {
-				Array.Reverse(newData);
+				Array.Reverse(nativeOrderBytes);
 			}
-			return newData;
+			return nativeOrderBytes;
 		}
 
 		/// <summary>

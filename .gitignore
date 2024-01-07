@@ -361,3 +361,8 @@ MigrationBackup/
 
 # Fody - auto-generated XML schema
 FodyWeavers.xsd
+/OSCVRC/OSCVRC.csproj
+/OSCVRC/VRCAvatarParameterOSCInterface.cs
+/OSCVRC/DataUtils/Variant.cs
+/OSCVRC/DataUtils/OSCDataUtil.cs
+/OSCVRC/DataUtils/Logger.cs

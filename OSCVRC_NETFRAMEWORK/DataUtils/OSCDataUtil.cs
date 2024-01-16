@@ -37,13 +37,14 @@ namespace OSCVRC.DataUtils {
 		/// </summary>
 		/// <param name="text"></param>
 		/// <returns></returns>
-		public static int PutOSCString(byte[] destination, int start, string text) {
-			int offset = start;
-			offset += Encoding.ASCII.GetBytes(text, 0, text.Length, destination, start);
-			destination[offset++] = 0;
+		public static int PutOSCString(byte[] destination, int at, string text) {
+			int offset = 0;
+			offset += Encoding.ASCII.GetBytes(text, 0, text.Length, destination, at);
+			at += offset;
+			destination[at++] = 0;
 			int extraNeededSpace = 4 - (offset % 4);
 			offset += extraNeededSpace;
-			return offset - start;
+			return offset;
 		}
 
 		/// <summary>

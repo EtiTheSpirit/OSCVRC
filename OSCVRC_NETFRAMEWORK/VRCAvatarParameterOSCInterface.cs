@@ -6,6 +6,8 @@ using System.Linq;
 using System.Net;
 using System.Net.Sockets;
 using System.Net.WebSockets;
+using System.Reflection;
+using System.Security.Cryptography;
 using System.Text;
 using System.Text.RegularExpressions;
 using System.Threading;
@@ -38,10 +40,15 @@ namespace OSCVRC {
 		//language=regex
 		private const string REGEX_MATCH_INCOMING_OSC_BOOL = @"([^,]+),([TF])\x00{2}";
 
-		private static readonly byte[] TAG_FLOAT = (new byte[] { (byte)',', (byte)'f', 0, 0 });
-		private static readonly byte[] TAG_INT = (new byte[] { (byte)',', (byte)'i', 0, 0 });
-		private static readonly byte[] TAG_TRUE = (new byte[] { (byte)',', (byte)'T', 0, 0 });
-		private static readonly byte[] TAG_FALSE = (new byte[] { (byte)',', (byte)'F', 0, 0 });
+		private const char TAG_FLOAT_CHAR = 'f';
+		private const char TAG_INT_CHAR = 'i';
+		private const char TAG_BOOL_TRUE_CHAR = 'T';
+		private const char TAG_BOOL_FALSE_CHAR = 'F';
+
+		private static readonly byte[] TAG_FLOAT = (new byte[] { (byte)',', (byte)TAG_FLOAT_CHAR, 0, 0 });
+		private static readonly byte[] TAG_INT = (new byte[] { (byte)',', (byte)TAG_INT_CHAR, 0, 0 });
+		private static readonly byte[] TAG_TRUE = (new byte[] { (byte)',', (byte)TAG_BOOL_TRUE_CHAR, 0, 0 });
+		private static readonly byte[] TAG_FALSE = (new byte[] { (byte)',', (byte)TAG_BOOL_FALSE_CHAR, 0, 0 });
 
 
 		private bool _disposed;
@@ -126,6 +133,7 @@ namespace OSCVRC {
 			return paramNameBytes;
 		}
 
+		#region Multi-value Packets
 
 		/// <summary>
 		/// Constructs a new OSC packet. <see cref="int"/> and <see cref="float"/> types require the value to be placed in by the caller. <see cref="bool"/> types require the tag to be placed in by the caller.
@@ -134,25 +142,21 @@ namespace OSCVRC {
 		/// <param name="parameterName"></param>
 		/// <returns>The number of bytes advanced in the array.</returns>
 		/// <exception cref="NotSupportedException"></exception>
-		private static int PutOSCPacket<T>(byte[] destination, int start, string parameterName) where T : struct {
-			int orgLen = OSCDataUtil.PutOSCString(destination, start, $"{AVATAR_PARAMETER_PATH_PREFIX}/{parameterName}");
+		private static int PutOSCPacket<T>(byte[] destination, int index, string parameterName) where T : struct {
+			int start = index;
+			int writtenStringLength = OSCDataUtil.PutOSCString(destination, index, $"{AVATAR_PARAMETER_PATH_PREFIX}/{parameterName}");
 
 			if (typeof(T) == typeof(int)) {
-				// Array.Resize(ref paramNameBytes, orgLen + 4 + 4);
-				Array.Copy(TAG_INT.ToArray(), 0, destination, orgLen, 4);
-				orgLen += 8;
+				Array.Copy(TAG_INT.ToArray(), 0, destination, index + writtenStringLength, 4);
 			} else if (typeof(T) == typeof(float)) {
-				// Array.Resize(ref paramNameBytes, orgLen + 4 + 4);
-				Array.Copy(TAG_FLOAT.ToArray(), 0, destination, orgLen, 4);
-				orgLen += 8;
-			} else if (typeof(T) == typeof(bool)) {
-				// Array.Resize(ref paramNameBytes, orgLen + 4 + 0);
-				orgLen += 4;
-			} else {
+				Array.Copy(TAG_FLOAT.ToArray(), 0, destination, index + writtenStringLength, 4);
+			} else if (typeof(T) != typeof(bool)) {
 				throw new NotSupportedException($"The provided type parameter ({typeof(T).FullName}) is not a VRChat-supported OSC type.");
 			}
-			return orgLen - start;
+			writtenStringLength += 4;
+			return (index + writtenStringLength) - start;
 		}
+
 
 		private static void AppendToEnd(byte[] packet, byte[] valueBytes) {
 			Array.Copy(valueBytes, 0, packet, packet.Length - valueBytes.Length, valueBytes.Length);
@@ -161,6 +165,8 @@ namespace OSCVRC {
 		private static void InsertInto(byte[] packet, byte[] value, int at) {
 			Array.Copy(value, 0, packet, at, value.Length);
 		}
+
+		#endregion
 
 		#endregion
 
@@ -178,11 +184,12 @@ namespace OSCVRC {
 		/// </remarks>
 		/// <param name="parameterName">The name of the avatar parameter. This is case sensitive and must match exactly.</param>
 		/// <param name="value">The value to set this parameter to.</param>
+		/// <param name="skipCache">If true, the value will not be cached. This means that calling <see cref="TryGetAvatarParameter"/> may not return a value that represents what was sent by the caller.</param>
 		/// <exception cref="ArgumentOutOfRangeException">If the input value is less than -1.0f or greater than 1.0f.</exception>
-		public void SetAvatarParameter(string parameterName, float value) {
+		public void SetAvatarParameter(string parameterName, float value, bool skipCache = false) {
 			if (_disposed) throw new ObjectDisposedException(GetType().Name);
 			if (value < -1f || value > 1f) throw new ArgumentOutOfRangeException(nameof(value), "VRChat Float parameters only support values from -1.0f to +1.0f.");
-			_dataCache[parameterName] = value;
+			if (!skipCache) _dataCache[parameterName] = value;
 			byte[] packet = NewOSCPacket<float>(parameterName);
 			byte[] valueBytes = OSCDataUtil.GetBigEndianBytesOf(value);
 			AppendToEnd(packet, valueBytes);
@@ -199,17 +206,18 @@ namespace OSCVRC {
 		/// </remarks>
 		/// <param name="parameterName">The name of the avatar parameter. This is case sensitive and must match exactly.</param>
 		/// <param name="value">The value to set this parameter to.</param>
+		/// <param name="skipCache">If true, the value will not be cached. This means that calling <see cref="TryGetAvatarParameter"/> may not return a value that represents what was sent by the caller.</param>
 		/// <exception cref="ArgumentOutOfRangeException">If the input value is less than zero or greater than 255.</exception>
-		public void SetAvatarParameter(string parameterName, int value) {
+		public void SetAvatarParameter(string parameterName, int value, bool skipCache = false) {
 			if (_disposed) throw new ObjectDisposedException(GetType().Name);
 			if (value < 0 || value > 255) throw new ArgumentOutOfRangeException(nameof(value), "VRChat Integer parameters only support values from 0 to 255.");
 			SetAvatarParameter(parameterName, (byte)value);
 		}
 
-		/// <inheritdoc cref="SetAvatarParameter(string, int)"/>
-		public void SetAvatarParameter(string parameterName, byte value) {
+		/// <inheritdoc cref="SetAvatarParameter(string, int, bool)"/>
+		public void SetAvatarParameter(string parameterName, byte value, bool skipCache = false) {
 			if (_disposed) throw new ObjectDisposedException(GetType().Name);
-			_dataCache[parameterName] = value;
+			if (!skipCache) _dataCache[parameterName] = value;
 			byte[] packet = NewOSCPacket<int>(parameterName);
 			byte[] valueBytes = OSCDataUtil.GetBigEndianBytesOf(value);
 			AppendToEnd(packet, valueBytes);
@@ -226,9 +234,10 @@ namespace OSCVRC {
 		/// </remarks>
 		/// <param name="parameterName">The name of the avatar parameter. This is case sensitive and must match exactly.</param>
 		/// <param name="value">The value to set this parameter to.</param>
-		public void SetAvatarParameter(string parameterName, bool value) {
+		/// <param name="skipCache">If true, the value will not be cached. This means that calling <see cref="TryGetAvatarParameter"/> may not return a value that represents what was sent by the caller.</param>
+		public void SetAvatarParameter(string parameterName, bool value, bool skipCache = false) {
 			if (_disposed) throw new ObjectDisposedException(GetType().Name);
-			_dataCache[parameterName] = value;
+			if (!skipCache) _dataCache[parameterName] = value;
 			byte[] packet = NewOSCPacket<bool>(parameterName); // Bool has no args and thus it has no tag assigned here because the tag is the value.
 			byte[] valueBytes = value ? TAG_TRUE : TAG_FALSE;
 			AppendToEnd(packet, valueBytes);
@@ -238,33 +247,34 @@ namespace OSCVRC {
 		}
 
 		/// <summary>
-		/// Sends many parameters at once in a single transmission. This performs much better than
-		/// calling <see cref="SetAvatarParameter"/> many times repeatedly.
+		/// Bulks together the operation of sending many avatar parameters. <strong>Has a maximum of 256 parameters at once.</strong>
 		/// </summary>
-		/// <param name="parameters"></param>
-		public void SetManyParameters((string, Variant<int, float, bool>)[] parameters) {
+		/// <param name="parameters">An array of every parameter. Item1 is the name, and Item2 is the value.</param>
+		/// <param name="skipCache">If true, the value will not be cached. This means that calling <see cref="TryGetAvatarParameter"/> may not return a value that represents what was sent by the caller.</param>
+		public void SetManyParameters((string, Variant<int, float, bool>)[] parameters, bool skipCache = false) {
 			if (_disposed) throw new ObjectDisposedException(GetType().Name);
+			if (parameters.Length > 256) throw new ArgumentException("The maximum about of concurrent parameters is 256.", nameof(parameters));
 
-			byte[] bigBuf = new byte[1024];
 			int offset = 0;
 			for (int index = 0; index < parameters.Length; index++) {
+				_bigBufPacketIndices[index] = offset;
 				(string parameterName, Variant<int, float, bool> value) = parameters[index];
-				_dataCache[parameterName] = value;
+				if (!skipCache) _dataCache[parameterName] = value;
 
 				byte[] valueBytes;
 				switch (value.index) {
 					case 1:
-						offset += PutOSCPacket<int>(bigBuf, offset, parameterName);
+						offset += PutOSCPacket<int>(_bigSendBuffer, offset, parameterName);
 						valueBytes = OSCDataUtil.GetBigEndianBytesOf((int)value);
 
 						break;
 					case 2:
-						offset += PutOSCPacket<float>(bigBuf, offset, parameterName);
+						offset += PutOSCPacket<float>(_bigSendBuffer, offset, parameterName);
 						valueBytes = OSCDataUtil.GetBigEndianBytesOf((float)value);
 
 						break;
 					case 3:
-						offset += PutOSCPacket<bool>(bigBuf, offset, parameterName);
+						offset += PutOSCPacket<bool>(_bigSendBuffer, offset, parameterName);
 						valueBytes = (bool)value ? TAG_TRUE : TAG_FALSE;
 
 						break;
@@ -272,14 +282,43 @@ namespace OSCVRC {
 						throw new InvalidOperationException();
 				}
 
-
-				InsertInto(bigBuf, valueBytes, offset);
+				InsertInto(_bigSendBuffer, valueBytes, offset);
 				offset += valueBytes.Length;
+				int extra = 4 - (offset % 4);
+				if (extra == 4) extra = 0;
+				offset += extra;
 			}
 
-			OSCDataUtil.Pad(ref bigBuf);
-			_sender.Send(bigBuf);
+			for (int i = 0; i < parameters.Length; i++) {
+				int thisLength;
+				bool isNotLast = false;
+				int thisIndex = _bigBufPacketIndices[i];
+				if (i < parameters.Length - 1) {
+					thisLength = _bigBufPacketIndices[i + 1] - thisIndex;
+					isNotLast = true;
+				} else {
+					thisLength = offset - thisIndex;
+					// Offset will be at the end of the packet.
+				}
+
+				ArraySegment<byte> bufSegment = new ArraySegment<byte>(_bigSendBuffer, thisIndex, thisLength);
+				_sender.SendAsync(bufSegment, isNotLast ? SocketFlags.Partial : SocketFlags.None).Wait();
+				// To Future Xan: The version of SendAsync that sends a list of packets does not work for this.
+			}
 		}
+		/// <summary>
+		/// A shared 65KB buffer that is used for <see cref="SetManyParameters(ValueTuple{string, Variant{int, float, bool}}[], int)"/>.
+		/// <para/>
+		/// It is not cleared between uses and is insecure (technically) for this reason.
+		/// </summary>
+		private readonly byte[] _bigSendBuffer = new byte[0x10000];
+
+		/// <summary>
+		/// Works alongside <see cref="_bigSendBuffer"/> to store the indices of each packet in the buffer.
+		/// <para/>
+		/// It is not cleared between uses and is insecure (technically) for this reason.
+		/// </summary>
+		private readonly int[] _bigBufPacketIndices = new int[256];
 
 		#endregion
 
@@ -344,7 +383,7 @@ namespace OSCVRC {
 			} else {
 				TruncateReceivedInfo(match.Length, ref newReceivedInfo);
 			}
-			
+
 			return true;
 		}
 

@@ -106,6 +106,16 @@ namespace OSCVRC {
 		/// <inheritdoc/>
 		~VRCAvatarParameterOSCInterface() { Dispose(); }
 
+		[Obsolete("This has not yet been implemented.", true)]
+		public string[] GetAvatarParameters() {
+			throw new NotImplementedException("OSCQuery has not yet been implemented.");
+		}
+
+		[Obsolete("This has not yet been implemented.", true)]
+		public void AdvertiseCapsToVRC() {
+			throw new NotImplementedException("OSCQuery has not yet been implemented.");
+		}
+
 		#region Sender Helpers
 
 		/// <summary>
@@ -251,7 +261,7 @@ namespace OSCVRC {
 		/// </summary>
 		/// <param name="parameters">An array of every parameter. Item1 is the name, and Item2 is the value.</param>
 		/// <param name="skipCache">If true, the value will not be cached. This means that calling <see cref="TryGetAvatarParameter"/> may not return a value that represents what was sent by the caller.</param>
-		public void SetManyParameters((string, Variant<int, float, bool>)[] parameters, bool skipCache = false) {
+		public Task<int>[] SetManyParameters((string, Variant<int, float, bool>)[] parameters, bool skipCache = false) {
 			if (_disposed) throw new ObjectDisposedException(GetType().Name);
 			if (parameters.Length > 256) throw new ArgumentException("The maximum about of concurrent parameters is 256.", nameof(parameters));
 
@@ -289,6 +299,7 @@ namespace OSCVRC {
 				offset += extra;
 			}
 
+			Task<int>[] toSend = new Task<int>[parameters.Length];
 			for (int i = 0; i < parameters.Length; i++) {
 				int thisLength;
 				bool isNotLast = false;
@@ -302,9 +313,10 @@ namespace OSCVRC {
 				}
 
 				ArraySegment<byte> bufSegment = new ArraySegment<byte>(_bigSendBuffer, thisIndex, thisLength);
-				_sender.SendAsync(bufSegment, isNotLast ? SocketFlags.Partial : SocketFlags.None).Wait();
+				toSend[i] = _sender.SendAsync(bufSegment, isNotLast ? SocketFlags.Partial : SocketFlags.None);
 				// To Future Xan: The version of SendAsync that sends a list of packets does not work for this.
 			}
+			return toSend;
 		}
 		/// <summary>
 		/// A shared 65KB buffer that is used for <see cref="SetManyParameters(ValueTuple{string, Variant{int, float, bool}}[], int)"/>.
